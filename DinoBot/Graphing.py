@@ -5,6 +5,11 @@ from scipy.signal import lfilter
 from sklearn.linear_model import LinearRegression
 
 
+""" Commonly used units """
+
+# nA cm$^{-2}$ (nmol chl$_a$)$^{-1}$
+# fA cm$^{-2}$ cell$^{-1}$
+
 """ Basic functions """
 
 
@@ -17,6 +22,7 @@ def draw_rectangle(x, y, width, height, colour):
 def draw_rectangle_on_plot(list_of_changes, yu, yl):
     last = list_of_changes[-1]
     list_of_changes.append(last + 120)
+    draw_rectangle(-10, yl, 10, (yu - yl) + 30, 'grey')
     for d in list_of_changes:
         if list_of_changes.index(d) == 0:
             draw_rectangle(0, yl, d, (yu - yl) + 30, 'grey')
@@ -36,30 +42,23 @@ def linear_regression(x, y):
 """ Simple plot """
 
 
-def scatter_chart(x, y, title):
-    plt.xlabel('Time (s)', size=12)
-    plt.ylabel('Current intensity (uA)', size=12)
+def scatter_chart(x, y, title, xlabel, ylabel):
+    plt.xlabel(xlabel, size=12)
+    plt.ylabel(ylabel, size=12)
     plt.title(title)
     plt.scatter(x, y, s=0.1, color='black')
     plt.show()
 
 
-def line_chart(time_list, densities_list, title):
+def line_chart(time_list, densities_list, title, xlabel, ylabel):
     x = time_list
     y = densities_list
     plt.scatter(x, y, color='black')
-    plt.xlabel('Time (s)', size=20)
-    plt.ylabel('Current density\n(nA cm$^{-2}$ (nmol chl$_a$)$^{-1}$)', size=20)
+    plt.xlabel(xlabel, size=20)
+    plt.ylabel(ylabel, size=20)
     plt.title(title, size=22)
     plt.xticks(fontsize=17)
     plt.xticks(fontsize=17)
-
-    model = LinearRegression()
-    model.fit(x, y)
-    Y = model.predict(x)
-    print(Y)
-    plt.plot(x, model.predict(x), color='blue', linewidth=1)
-
     plt.tight_layout()
     plt.show()
 
@@ -70,18 +69,15 @@ def line_chart(time_list, densities_list, title):
 def ld_scatter_chart(df, list_of_changes, title):
     x = df["Time (s)"]
     y = df["Intensity (nA)"]
-
     plt.xlabel('Time (s)', size=12)
-    plt.ylabel('Current intensity (uA)', size=12)
+    plt.ylabel('Current intensity (nA)', size=12)
     plt.title(title)
 
     p = plt.scatter(x, y, s=0.1, color='black')
-
     axd = p.axes
     axd.margins(x=0, y=0.01)
     yl, yu = axd.get_ylim()
     draw_rectangle_on_plot(list_of_changes, yu, yl)
-
     plt.show()
 
 
@@ -89,12 +85,34 @@ def ld_line_chart(df, list_of_changes, title):
     x = df["Time (s)"]
     y = df["Intensity (nA)"]
 
-    plt.xlabel('Time (s)', size=12)
-    plt.ylabel('Current (nA)', size=12)
-    plt.title(title)
+    plt.xlabel('Time (s)', size=16)
+    plt.ylabel('Current (nA)', size=16)
+    plt.title(title, size=16)
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
 
     p_chassis = plt.scatter(x, y, color='none')
     plt.plot(x, y, color='black', linewidth=1)
+
+    axd = p_chassis.axes
+    axd.margins(x=0, y=0.01)
+    yl, yu = axd.get_ylim()
+    draw_rectangle_on_plot(list_of_changes, yu, yl)
+    plt.tight_layout()
+    plt.show()
+
+
+def ld_line_chart_o2(df, list_of_changes, title):
+    x = df["Time"]
+    y = df["O2"]
+
+    plt.xlabel('Time (s)', size=16)
+    plt.ylabel('O2 concentration (umol/L)', size=16)
+    plt.title(title, size=16)
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
+
+    p_chassis = plt.scatter(x, y, color='k')
 
     axd = p_chassis.axes
     axd.margins(x=0, y=0.01)
@@ -132,10 +150,10 @@ def filtered_line(df_filtered, df_original, list_of_changes, title):
 
 # Comparing photocurrent densities during chronoamperometry
 
-def boxplot_pc(densities):
-    plt.ylabel('Current intensity (nA cm$^{-2}$ (nmol chl$_a$)$^{-1}$)', size=12)
-    plt.xlabel('')
-    plt.title("Photocurrent densities from $Synechocystis$ (replicate C)")
+def boxplot_pc(densities, title, xlabel, ylabel):
+    plt.ylabel(ylabel, size=12)
+    plt.xlabel(xlabel)
+    plt.title(title)
     plt.boxplot(densities, patch_artist=True,
                 boxprops=dict(facecolor="green", color="black"), medianprops=dict(color="black"))
     plt.show()
@@ -143,9 +161,9 @@ def boxplot_pc(densities):
 
 # Comparing photocurrent densities during stepped chronoamperometry
 
-def boxplot_sc(list_of_replicates, list_of_potentials, title):
-    plt.xlabel('Potential vs SHE (V)', size=14)
-    plt.ylabel('Current intensity (nA cm$^{-2}$ (nmol chl$_a$)$^{-1}$)', size=14)
+def boxplot_sc(list_of_replicates, list_of_potentials, title, xlabel, ylabel):
+    plt.xlabel(xlabel, size=14)
+    plt.ylabel(ylabel, size=14)
     plt.title(title, size=14)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
@@ -155,25 +173,25 @@ def boxplot_sc(list_of_replicates, list_of_potentials, title):
     plt.show()
 
 
-def boxplot_sc_blank(list_of_replicates, list_of_potentials, title):
+def boxplot_sc_blank(list_of_replicates, list_of_potentials, title, ylabel):
     plt.xlabel('Potential vs SHE', size=14)
-    plt.ylabel('Current density (uA cm$^{-2}$)', size=14)
+    plt.ylabel(ylabel, size=12)
     plt.title(title, size=14)
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=12)
 
     plt.boxplot(list_of_replicates, labels=list_of_potentials, patch_artist=True,
-                boxprops=dict(facecolor="green", color="black"), medianprops=dict(color="black"))
+                boxprops=dict(facecolor="grey", color="black"), medianprops=dict(color="black"))
     plt.show()
 
 
 # Other
 
 
-def plot_light_comparison(list_of_datasets, list_of_list_of_changes, list_of_labels):
-    plt.xlabel('Time (s)', size=12)
-    plt.ylabel('Current intensity (nA)', size=12)
-    plt.title("$S.$ $microadriaticum$ chronoamperometry")
+def plot_light_comparison(list_of_datasets, list_of_list_of_changes, list_of_labels, title, xlabel, ylabel):
+    plt.xlabel(xlabel, size=12)
+    plt.ylabel(ylabel, size=12)
+    plt.title(title)
 
     list_of_colours = ['black', 'blue', 'green', 'orange', 'red', 'purple']
     for dataset in list_of_datasets:
@@ -192,20 +210,22 @@ def plot_light_comparison(list_of_datasets, list_of_list_of_changes, list_of_lab
     plt.show()
 
 
-def comparative_boxplot(list_of_variables, list_of_datasets, title, x_axis):
+def comparative_boxplot(list_of_variables, list_of_datasets, title, xlabel, ylabel):
+    plt.xlabel(xlabel, size=12)
+    plt.ylabel(ylabel, size=12)
+    plt.title(title)
 
-  plt.xlabel(x_axis, size=12)
-  plt.ylabel('Current density (nA cm$^{-2}$ (nmol chl$_a$)$^{-1}$)', size=12)
-  plt.title(title)
+    colourlist = ['orangered', 'orange', 'gold', 'limegreen', 'green', 'dodgerblue', 'royalblue', 'purple']
+    colourlist.reverse()
 
-  colourlist = ['orangered', 'orange', 'gold', 'limegreen', 'green', 'dodgerblue', 'royalblue', 'purple']
+    p = plt.boxplot(list_of_datasets, labels=list_of_variables, patch_artist=True,
+                    medianprops=dict(color="black"))
 
-  p = plt.boxplot(list_of_datasets, labels=list_of_variables, patch_artist=True,
-                  medianprops=dict(color="black"))
+    for patch, color in zip(p['boxes'], colourlist):
+        patch.set_facecolor(color)
 
-  for patch, color in zip(p['boxes'], colourlist):
-      patch.set_facecolor(color)
-  plt.show()
+    plt.tight_layout()
+    plt.show()
 
 
 """ Plotting photocurrent averages across multiple technical replicates """
@@ -236,5 +256,30 @@ def plotAverage(average_data, list_of_changes, title):
 
     plt.show()
 
+
+def plot_reps_average(average_data, list_of_changes, title):
+    x = average_data["Time"]
+    y = average_data["all_averages"]
+    ymin = average_data["all_ymin"]
+    ymax = average_data["all_ymax"]
+
+    plt.xlabel('Time (s)', size=16)
+    plt.ylabel('Current (nA)', size=16)
+    plt.title(title, size=16)
+    plt.xticks(fontsize=12)
+    plt.yticks(fontsize=12)
+
+    p_chassis = plt.scatter(x, y, color='none')
+    plt.plot(x, y, color='black', linewidth=1)
+
+    plt.fill_between(x, ymin, ymax, alpha=0.1, label='error band', color='black')
+
+    axd = p_chassis.axes
+    axd.margins(x=0, y=0.01)
+    yl, yu = axd.get_ylim()
+    list_of_changes = [x-30 for x in list_of_changes]
+    draw_rectangle_on_plot(list_of_changes, yu, yl)
+
+    plt.show()
 
 
