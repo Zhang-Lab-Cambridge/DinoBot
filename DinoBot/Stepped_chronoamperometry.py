@@ -106,6 +106,14 @@ def normalise_by_chla(photocurrent_densities, chl_a):
     return photocurrent_densities
 
 
+def normalise_by_cell_count(photocurrent_densities, cell_count):
+    # averages photocurrents per cell
+    photocurrent_densities = [x / cell_count for x in photocurrent_densities]
+    # then convert nA to fA as otherwise value will be too small
+    photocurrent_densities = [x*(10**6) for x in photocurrent_densities]
+    return photocurrent_densities
+
+
 def average_photocurrent_densities(list_of_densities, start, finish):
     subset_of_list = list_of_densities[start:finish]
     mean_density = round(mean(subset_of_list), 2)
@@ -136,6 +144,30 @@ def analyse_stepped_chrono(name, first_on, mol_chla, time_on, time_off):
     return data, list_of_changes, densities_normalised_by_chla_formatted
 
 
+def analyse_stepped_chrono_per_cell(name, first_on, cell_count, time_on, time_off):
+    # create a data frame from the text filename
+    t, i = read_sc_data(name)
+    data = create_sc_df(t, i, first_on, time_on, time_off)
+
+    # identify the changes in light switching
+    list_of_changes = []
+    identify_change(data, list_of_changes)
+
+    # get a list of the current steady states
+    steady_states_list = average_current_plateaus(list_of_changes, data)
+    current_densities_list = calculate_current_densities(steady_states_list)
+
+    # normalise by area and chla content
+    densities_normalised_by_area = normalise_by_cm2(current_densities_list)
+    print("By area:", densities_normalised_by_area)
+    densities_normalised_by_cell = normalise_by_cell_count(densities_normalised_by_area, cell_count)
+    densities_normalised_by_cell_formatted = [round(elem, 2) for elem in densities_normalised_by_cell]
+
+    # Output data
+    print("Densities normalised by area and chla: ", densities_normalised_by_cell_formatted)
+    return data, list_of_changes, densities_normalised_by_cell_formatted
+
+
 def analyse_stepped_chrono_blank(name, first_on, time_on, time_off):
     # create a data frame from the text filename
     t, i = read_sc_data(name)
@@ -158,33 +190,67 @@ def analyse_stepped_chrono_blank(name, first_on, time_on, time_off):
     return data, list_of_changes, densities_normalised_by_area_formatted
 
 
+def analyse_sc_dark_currents(name, first_on, time_on, time_off):
+    # create a data frame from the text filename
+    t, i = read_sc_data(name)
+    data = create_sc_df(t, i, first_on, time_on, time_off)
+
+    # identify the changes in light switching
+    list_of_changes = []
+    identify_change(data, list_of_changes)
+
+    # get a list of the current steady states
+    steady_states_list = average_current_plateaus(list_of_changes, data)
+    # print("steady states", steady_states_list)
+
+    # get a half of those values
+    dark_list = [steady_states_list[index] for index in range(0, len(steady_states_list), 2)]
+    # print('dark:', dark_list)
+    dark_list.pop(0)
+
+    return data, list_of_changes, dark_list
+
+
 # this function groups together the replicates for making box plots
 
 def sc_replicate_to_3(list_of_densities):
     del list_of_densities[0::4]
-    print(list_of_densities)
+    # print(list_of_densities)
     list_of_densities = [list_of_densities[x:x + 3] for x in range(0, len(list_of_densities), 3)]
     print(list_of_densities)
     return list_of_densities
 
 
-def link_replicates_to_potential(list_of_replicates, list_of_potentials):
-    potentials = []
-    for replicate_bunch in list_of_replicates:
-        index = list_of_replicates.index(replicate_bunch)
-        potentials.append(list_of_potentials[index])
+def group_by_3(list_of_densities):
+    list_of_densities = [list_of_densities[x:x + 3] for x in range(0, len(list_of_densities), 3)]
+    # print(list_of_densities)
+    return list_of_densities
+
+
+def relative_current(densities):
+    # print("densities: ", densities)
+    relative_densities = []
+    base_tuplet = densities[0]
+    # print("base_tuplet", base_tuplet)
+    base = abs(np.mean(base_tuplet))
+    # print("base", base)
+    for l in densities:
+        # print("l", l)
+        for d in l:
+            current = abs(d - base)
+            relative_densities.append(current)
+    relative_densities = group_by_3(relative_densities)
+    print(relative_densities)
+    return relative_densities
 
 
 def split_into_potentials(data, loc, lop):
-    print("\nloc:\n", loc)
+    # print("\nloc:\n", loc)
     # to go from time to index: - 0.1 * 10
     loc = loc[::8]
-    print(loc)
+    # print(loc)
     steps = []
     for l in loc:
         steps.append(data[int((l-0.1) * 10):int(((l+600)-0.1) * 10)])
-    # print(steps)
+    # print("STEPS", steps)
     return steps
-
-
-
