@@ -1,6 +1,7 @@
 import pandas as pd
 from statistics import mean
 from scipy import signal
+import numpy as np
 
 
 """ Read the data """
@@ -17,11 +18,13 @@ def read_pc_data(file):
         contents.pop(0)
         time = []
         intensity = []
-        potential = []
+        # potential = []
         for line in contents:
             time.append(float(line.split('\t')[0]))
             intensity.append(float(line.split('\t')[1]))
-            potential.append(float(line.split('\t')[2]))
+            # potential.append(float(line.split('\t')[2]))
+
+        potential = [None] * len(time)
         return time, intensity, potential
 
 
@@ -88,7 +91,7 @@ def average_current_plateaus(list_of_changes, df):
 
 def calculate_current_densities(list_of_averages):
     photocurrent_densities = []
-    # excludes the first photo-current as it is often under the influence of the Cottrell
+    # excludes the first photo-current as it is often under the influence of the Cottrell curve
     for p in list_of_averages:
         if (list_of_averages.index(p) % 2) != 0 and list_of_averages.index(p) > 0:
             index_light = list_of_averages.index(p)
@@ -108,6 +111,14 @@ def normalise_by_cm2(photocurrent_densities):
 def normalise_by_chla(photocurrent_densities, chl_a):
     # averages photocurrents per chla concentration in mmol
     photocurrent_densities = [x / chl_a for x in photocurrent_densities]
+    return photocurrent_densities
+
+
+def normalise_by_cell_count(photocurrent_densities, cell_count):
+    # averages photocurrents per cell
+    photocurrent_densities = [x / cell_count for x in photocurrent_densities]
+    # then convert nA to fA as otherwise value will be too small
+    photocurrent_densities = [x*(10**6) for x in photocurrent_densities]
     return photocurrent_densities
 
 
@@ -134,6 +145,29 @@ def analyse_photocurrents(name, first_on, mol_chla, time_on, time_off):
     return data, list_of_changes, densities_normalised_by_chla_formatted
 
 
+def analyse_photocurrents_per_cell(name, first_on, cell_count, time_on, time_off):
+    # create a data frame from the text filename
+    t, i, p = read_pc_data(name)
+    data = create_pc_df(t, i, p, first_on, time_on, time_off)
+
+    # identify the changes in light switching
+    list_of_changes = []
+    identify_change(data, list_of_changes)
+
+    # get a list of the current steady states
+    steady_states_list = average_current_plateaus(list_of_changes, data)
+    current_densities_list = calculate_current_densities(steady_states_list)
+
+    # normalise by area and chla content
+    densities_normalised_by_area = normalise_by_cm2(current_densities_list)
+    densities_normalised_by_cell = normalise_by_cell_count(densities_normalised_by_area, cell_count)
+    densities_normalised_by_cell_formatted = [round(elem, 2) for elem in densities_normalised_by_cell]
+
+    # Output data
+    print("Densities normalised by area and cell: ", densities_normalised_by_cell_formatted)
+    return data, list_of_changes, densities_normalised_by_cell_formatted
+
+
 def analyse_photocurrents_blank(name, first_on, time_on, time_off):
     # create a data frame from the text filename
     t, i, p = read_pc_data(name)
@@ -156,6 +190,30 @@ def analyse_photocurrents_blank(name, first_on, time_on, time_off):
     return data, list_of_changes, densities_normalised_by_area_formatted
 
 
+def analyse_pc_dark_currents_per_cell(name, first_on, cell_count, time_on, time_off):
+    # create a data frame from the text filename
+    t, i, p = read_pc_data(name)
+    data = create_pc_df(t, i, p, first_on, time_on, time_off)
+
+    # identify the changes in light switching
+    list_of_changes = []
+    identify_change(data, list_of_changes)
+
+    # get a list of the current steady states
+    steady_states_list = average_current_plateaus(list_of_changes, data)
+    # print("steady states", steady_states_list)
+
+    # get a half of those values
+    dark_list = [steady_states_list[index] for index in range(0, len(steady_states_list), 2)]
+    current_normalised_by_cell = normalise_by_cell_count(dark_list, cell_count)
+    current_normalised_by_cell_formatted = [round(elem, 2) for elem in current_normalised_by_cell]
+
+    # print('dark:', dark_list)
+    # dark_list.pop(0)
+
+    return data, list_of_changes, current_normalised_by_cell_formatted
+
+
 def average_photocurrent_densities(list_of_densities, start, finish):
     subset_of_list = list_of_densities[start:finish]
     mean_density = round(mean(subset_of_list), 2)
@@ -173,6 +231,7 @@ def split_up_photocurrents(data, list_of_changes, first_on):
         photocurrent = data[(previous <= data["Time (s)"]) & (data["Time (s)"] < l)]
         previous = l
         photocurrent_list.append(photocurrent)
+    print(photocurrent_list)
     return photocurrent_list
 
 
@@ -188,16 +247,39 @@ def reindex_photocurrents(photocurrent_list, list_of_changes):
         # not sure where the 150 comes from, maybe 1 cycle removed too much?
         p_df["Time (s)"] -= (l-150)
         indexed_pl.append(p)
-    # print("new list:", indexed_pl)
+    print("new list:", indexed_pl)
     return indexed_pl
 
 
 def average_photocurrents(indexed_pl, offset):
+    # reindexed photocurrent list has all the photocurrents, even the empty ones (not the studied step).
+    # therefore, offset = the number of the photocurrent we start from. And offset + 1 usually the one where potential
+    # is changed.
     pd.set_option('display.max_columns', None)
-
     base_df = pd.DataFrame(indexed_pl[offset+1])
     base_df = base_df.drop(["Intensity (nA)"], axis=1)
 
+    indexed_pl.pop(1+offset)
+
+    for p in indexed_pl:
+        p_df = pd.DataFrame(p)
+        intensity = p_df["Intensity (nA)"]
+        base_df = pd.concat([base_df, intensity], axis=1)
+
+    filter_col = [col for col in base_df if col.startswith('Int')]
+    base_df["average_pc"] = base_df[filter_col].mean(axis=1)
+    base_df["std"] = base_df[filter_col].std(axis=1)
+    base_df["ymin"] = base_df["average_pc"] - base_df["std"]
+    base_df["ymax"] = base_df["average_pc"] + base_df["std"]
+    print(base_df)
+    return base_df
+
+
+def average_photocurrents_trimmed(indexed_pl, offset, outlier):
+    pd.set_option('display.max_columns', None)
+    base_df = pd.DataFrame(indexed_pl[offset+1])
+    base_df = base_df.drop(["Intensity (nA)"], axis=1)
+    indexed_pl.pop(outlier)
     indexed_pl.pop(0+offset)
 
     for p in indexed_pl:
@@ -211,6 +293,56 @@ def average_photocurrents(indexed_pl, offset):
     base_df["ymin"] = base_df["average_pc"] - base_df["std"]
     base_df["ymax"] = base_df["average_pc"] + base_df["std"]
     # print(base_df)
+    return base_df
+
+
+def get_average_df(data, loc, first_on, offset):
+    plist0 = split_up_photocurrents(data, loc, first_on)
+    ri_plist = reindex_photocurrents(plist0, loc)
+    base_df = average_photocurrents(ri_plist, offset)
+    # print("BASE DF", base_df)
+    return base_df
+
+
+def get_average_df_trimmed(data, loc, first_on, offset, outlier):
+    plist0 = split_up_photocurrents(data, loc, first_on)
+    ri_plist = reindex_photocurrents(plist0, loc)
+    base_df = average_photocurrents_trimmed(ri_plist, offset, outlier)
+    print("TRIMMED BASE DF", base_df)
+    return base_df
+
+
+def average_replicate_shapes(df1, df2, df3):
+    df1.rename(columns={'Time (s)': 'Time'}, inplace=True)
+    df1.rename(columns={'average_pc': 'average_pc1'}, inplace=True)
+    df1.rename(columns={'std': 'std1'}, inplace=True)
+    df2.rename(columns={'average_pc': 'average_pc2'}, inplace=True)
+    df2.rename(columns={'std': 'std2'}, inplace=True)
+    df3.rename(columns={'average_pc': 'average_pc3'}, inplace=True)
+    df3.rename(columns={'std': 'std3'}, inplace=True)
+    master_df = pd.concat([df1, df2, df3], axis=1)
+    filter_col = [col for col in master_df if col.startswith('average')]
+    master_df["all_averages"] = master_df[filter_col].mean(axis=1)
+    # average of stds is: sqrt((std1**2 + std2**2 + std3**2)/k) where k is number of groups
+    master_df["Total_error"] = np.sqrt((master_df["std1"]**2 + master_df["std1"]**2 + master_df["std1"]**2)/3)
+    master_df["all_ymin"] = master_df["all_averages"] - master_df["Total_error"]
+    master_df["all_ymax"] = master_df["all_averages"] + master_df["Total_error"]
+    # print(" MASTER DF \n", master_df)
+    return master_df
+
+
+def average_whole_replicate_shapes(df1, df2, df3):
+    df1.rename(columns={'Time (s)': 'Time'}, inplace=True)
+    df1.rename(columns={'average_pc': 'average_pc1'}, inplace=True)
+    df2.rename(columns={'average_pc': 'average_pc2'}, inplace=True)
+    df3.rename(columns={'average_pc': 'average_pc3'}, inplace=True)
+    base_df = pd.concat([df1, df2, df3], axis=1)
+    filter_col = [col for col in base_df if col.startswith('Int')]
+    base_df["all_averages"] = base_df[filter_col].mean(axis=1)
+    base_df["std"] = base_df[filter_col].std(axis=1)
+    base_df["all_ymin"] = base_df["all_averages"] - base_df["std"]
+    base_df["all_ymax"] = base_df["all_averages"] + base_df["std"]
+    # print(" MASTER DF \n", master_df)
     return base_df
 
 
@@ -250,12 +382,43 @@ def baseline(dataset):
     # plt.plot(darkdata["Time (s)"], darkdata["Intensity (nA)"])
     # plt.show()
     darkmean = darkdata.loc[:, 'Intensity (nA)'].mean()
-    print(darkmean)
+    # print(darkmean)
     dataset["Intensity (nA)"] -= darkmean
     # print(dataset)
     return dataset
 
 
+def integrate_dark_current(data, loc):
+    dips = []
+    dark_data = []
+    data = baseline(data)
+    for l in loc:
+        if loc.index(l) % 2 != 0:
+            l2 = loc[loc.index(l) + 1]
+            print("l and l2", l, l2)
+            darkfilter = data[(data["Time (s)"] > l) & (data["Time (s)"] < l2)]
+            dark_data.append(darkfilter)
+    print(dark_data)
+    for d in dark_data:
+        area = - np.trapz(d["Intensity (nA)"], dx=0.1)
+        dips.append(area)
+    return dips
 
 
-
+def integrate_dark_dip(data, loc):
+    dips = []
+    dark_data = []
+    for l in loc:
+        if loc.index(l) % 2 != 0:
+            if loc.index(l) < 11:
+                l2 = loc[loc.index(l) + 1]
+                print("l and l2", l, l2)
+                # dark dip usually lasts 20 s
+                darkfilter = data[(data["Time (s)"] > l) & (data["Time (s)"] < l + 20)]
+                dark_data.append(darkfilter)
+    print(dark_data)
+    for d in dark_data:
+        area = np.abs(np.trapz(d["Intensity (nA)"], dx=0.1))
+        # area = -(np.trapz(d["Intensity (nA)"], dx=0.1))
+        dips.append(area)
+    return dips
