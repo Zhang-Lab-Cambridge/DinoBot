@@ -2,7 +2,10 @@ import pandas as pd
 from statistics import mean
 from scipy import signal
 import numpy as np
-
+from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import PolynomialFeatures
+from scipy.optimize import curve_fit
 
 """ Read the data """
 
@@ -190,6 +193,50 @@ def analyse_photocurrents_blank(name, first_on, time_on, time_off):
     return data, list_of_changes, densities_normalised_by_area_formatted
 
 
+def analyse_photocurrents_raw(name, first_on, time_on, time_off):
+    # create a data frame from the text filename
+    t, i, p = read_pc_data(name)
+    data = create_pc_df(t, i, p, first_on, time_on, time_off)
+
+    # identify the changes in light switching
+    list_of_changes = []
+    identify_change(data, list_of_changes)
+
+    # get a list of the current steady states
+    steady_states_list = average_current_plateaus(list_of_changes, data)
+    current_densities_list = calculate_current_densities(steady_states_list)
+
+    # don't normalise by area or chla content
+    densities = [round(elem, 2) for elem in current_densities_list]
+
+    # Output data
+    print("Densities normalised by area and chla: ", densities)
+    return data, list_of_changes, densities
+
+
+def analyse_pc_dark_currents(name, first_on, time_on, time_off):
+    # create a data frame from the text filename
+    t, i, p = read_pc_data(name)
+    data = create_pc_df(t, i, p, first_on, time_on, time_off)
+
+    # identify the changes in light switching
+    list_of_changes = []
+    identify_change(data, list_of_changes)
+
+    # get a list of the current steady states
+    steady_states_list = average_current_plateaus(list_of_changes, data)
+    # print("steady states", steady_states_list)
+
+    # get a half of those values
+    dark_list = [steady_states_list[index] for index in range(0, len(steady_states_list), 2)]
+    print(dark_list)
+
+    # print('dark:', dark_list)
+    # dark_list.pop(0)
+
+    return data, list_of_changes, dark_list
+
+
 def analyse_pc_dark_currents_per_cell(name, first_on, cell_count, time_on, time_off):
     # create a data frame from the text filename
     t, i, p = read_pc_data(name)
@@ -231,7 +278,7 @@ def split_up_photocurrents(data, list_of_changes, first_on):
         photocurrent = data[(previous <= data["Time (s)"]) & (data["Time (s)"] < l)]
         previous = l
         photocurrent_list.append(photocurrent)
-    print(photocurrent_list)
+    # print(photocurrent_list)
     return photocurrent_list
 
 
@@ -247,7 +294,7 @@ def reindex_photocurrents(photocurrent_list, list_of_changes):
         # not sure where the 150 comes from, maybe 1 cycle removed too much?
         p_df["Time (s)"] -= (l-150)
         indexed_pl.append(p)
-    print("new list:", indexed_pl)
+    # print("new list:", indexed_pl)
     return indexed_pl
 
 
@@ -271,7 +318,7 @@ def average_photocurrents(indexed_pl, offset):
     base_df["std"] = base_df[filter_col].std(axis=1)
     base_df["ymin"] = base_df["average_pc"] - base_df["std"]
     base_df["ymax"] = base_df["average_pc"] + base_df["std"]
-    print(base_df)
+    # print(base_df)
     return base_df
 
 
@@ -327,7 +374,7 @@ def average_replicate_shapes(df1, df2, df3):
     master_df["Total_error"] = np.sqrt((master_df["std1"]**2 + master_df["std1"]**2 + master_df["std1"]**2)/3)
     master_df["all_ymin"] = master_df["all_averages"] - master_df["Total_error"]
     master_df["all_ymax"] = master_df["all_averages"] + master_df["Total_error"]
-    # print(" MASTER DF \n", master_df)
+    print(" MASTER DF \n", master_df)
     return master_df
 
 
@@ -388,6 +435,68 @@ def baseline(dataset):
     return dataset
 
 
+def baseline_with_linear_model(data):
+    # model data to straight line
+    x = data["Time"].to_numpy()
+    x = x.reshape(-1, 1)
+    y = data["O2"].to_numpy()
+    y = y.reshape(-1, 1)
+    model = LinearRegression()
+    model.fit(x, y)
+    print(f"intercept: {model.intercept_}")
+    print(f"slope: {model.coef_}")
+
+    # calculate dataset for that model
+    x_new = np.arange(0, len(x), 1).reshape((-1, 1))
+    y_new = model.predict(x_new)
+    plt.plot(x_new, y_new, color='k')
+    plt.plot(x, y, color='blue')
+    plt.show()
+
+    # remove dataset from first dataset
+    data["fit"] = y_new
+    data["O2"] = data["O2"] - data["fit"]
+    plt.plot(data["O2"], data["Time"], color='k')
+    plt.plot(x, y, color='blue')
+    plt.show()
+    return data
+
+
+def baseline_with_poly_model(data, degree):
+    x = data["Time"].to_numpy()
+    x = x.reshape(-1, 1)
+    y = data["O2"].to_numpy()
+    y = y.reshape(-1, 1)
+    poly = PolynomialFeatures(degree=degree, include_bias=False)
+    poly_features = poly.fit_transform(x)
+    model = LinearRegression()
+    model.fit(poly_features, y)
+    y_predicted = model.predict(poly_features)
+
+    # plt.plot(x, y_predicted, color='k')
+    # plt.plot(x, y, color='blue')
+    # plt.show()
+
+    data["fit"] = y_predicted
+    data["O2"] = data["O2"] - data["fit"]
+    # plt.plot(data["Time"], data["O2"], color='k')
+    # plt.plot(x, y, color='blue')
+    # plt.show()
+    return data
+
+
+def exp_function(x, a, b, c):
+    return a * np.exp(b * x) + c
+
+
+def exp_function2(x, a, b):
+    return a * np.exp(-b * x)
+
+
+def cottrell(x, n, cj, D):
+    return (n*96485*0.785*cj*np.sqrt(D))/(np.sqrt(np.pi*x))
+
+
 def integrate_dark_current(data, loc):
     dips = []
     dark_data = []
@@ -422,3 +531,4 @@ def integrate_dark_dip(data, loc):
         # area = -(np.trapz(d["Intensity (nA)"], dx=0.1))
         dips.append(area)
     return dips
+
